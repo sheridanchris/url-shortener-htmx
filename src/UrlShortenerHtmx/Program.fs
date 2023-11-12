@@ -36,6 +36,12 @@ module Database =
     let slug = reader.ReadString "slug"
     { Url = url; Slug = slug }
 
+  let doesSlugExist (connection: IDbConnection) (slug: string) =
+    connection
+    |> Db.newCommand "select exists(select slug from urls where slug = @slug)"
+    |> Db.setParams [ "slug", SqlType.String slug ]
+    |> Db.Async.scalar (fun result -> (result :?> int64) = 1)
+
   let getShortenedUrl (connection: IDbConnection) (slug: string) =
     connection
     |> Db.newCommand "select url, slug from urls where slug = @slug"
@@ -57,8 +63,30 @@ module Views =
   open Giraffe.ViewEngine
   open Giraffe.ViewEngine.Htmx
 
+  let template (content: XmlNode) =
+    html [] [
+      head [ _title "URL Shortener" ] [
+        Script.minified
+        link [
+          _rel "stylesheet"
+          _href "https://unpkg.com/missing.css@1.1.1"
+        ]
+      ]
+      body [] [ content ]
+    ]
+
+  let errorNotice (error: string) =
+    div [
+      _id "notice"
+      _class "box bad"
+    ] [
+      strong [ _class "block titlebar" ] [ str "Error" ]
+      str error
+    ]
+
   let shortenUrlPartial =
     main [] [
+      div [ _id "notice" ] []
       form [
         _hxPost "/shorten"
         _hxSwap "outerHTML"
@@ -73,6 +101,15 @@ module Views =
               _name "url"
               _placeholder "https://site.com"
               _type "url"
+              _required
+            ]
+          ]
+          p [] [
+            label [ _for "slug" ] [ str "Enter a custom slug (optional)" ]
+            input [
+              _id "slug"
+              _name "slug"
+              _type "text"
             ]
           ]
           p [] [ button [ _type "submit" ] [ str "Shorten!" ] ]
@@ -99,32 +136,22 @@ module Views =
         ]
       ]
       p [] [
+        // this should probably be an <a href="/">Shorten Another!</a>
         button [
-          _hxGet "/shorten"
+          _hxGet "/"
           _hxSwap "outerHTML"
           _hxTarget "closest main"
         ] [ str "Shorten Another!" ]
       ]
     ]
 
-  let initialPage =
-    html [] [
-      head [ _title "URL Shortener" ] [
-        Script.minified
-        link [
-          _rel "stylesheet"
-          _src "https://unpkg.com/missing.css@1.1.1"
-        ]
-      ]
-      body [] [ shortenUrlPartial ]
-    ]
-
 module Handlers =
   open Domain
+  open Giraffe.Htmx
   open Microsoft.AspNetCore.Http
 
   [<CLIMutable>]
-  type CreateShortenedUrlCommand = { Url: string }
+  type CreateShortenedUrlCommand = { Url: string; Slug: string }
 
   let private pickCharacter (characters: char seq) =
     let length = Seq.length characters
@@ -132,22 +159,43 @@ module Handlers =
     Seq.item randomIndex characters
 
   let private visitUrlFactory (request: HttpRequest) : string -> string =
-    sprintf "%s://%s/visit/%s" request.Scheme (string request.Host)
+    sprintf "%s://%s/url/%s" request.Scheme (string request.Host)
+
+  let htmxView content : HttpHandler =
+    fun next ctx ->
+      let view =
+        if ctx.Request.IsHtmx && not ctx.Request.IsHtmxRefresh then
+          content
+        else
+          Views.template content
+
+      htmlView view next ctx
 
   let shortenUrl (command: CreateShortenedUrlCommand) : HttpHandler =
     fun next ctx ->
       task {
         use connection = Database.createConnection ()
 
-        let slug = Slug.createRandom pickCharacter
-        let shortenedUrl = { Url = command.Url; Slug = slug }
-        do! Database.saveShortenedUrl connection shortenedUrl
+        let slug =
+          if String.IsNullOrWhiteSpace command.Slug then
+            Slug.createRandom pickCharacter
+          else
+            command.Slug
 
-        return!
-          shortenedUrl
-          |> Views.shortenedUrlPartial (visitUrlFactory ctx.Request)
-          |> htmlView
-          |> fun view -> view next ctx
+        let! slugExists = Database.doesSlugExist connection slug
+
+        if slugExists then
+          let notice = Views.errorNotice "A shortened url with that slug already exists!"
+          return! (withHxRetarget "#notice" >=> htmlView notice) next ctx
+        else
+          let shortenedUrl: ShortenedUrl = { Url = command.Url; Slug = slug }
+          do! Database.saveShortenedUrl connection shortenedUrl
+
+          return!
+            shortenedUrl
+            |> Views.shortenedUrlPartial (visitUrlFactory ctx.Request)
+            |> htmlView
+            |> fun view -> view next ctx
       }
 
   let visitShortenedUrl (slug: string) : HttpHandler =
@@ -166,14 +214,12 @@ module Handlers =
 
   let router: HttpHandler =
     choose [
-      route "/" >=> GET >=> htmlView Views.initialPage
-      route "/shorten" >=> GET >=> htmlView Views.shortenUrlPartial
+      route "/" >=> GET >=> htmxView Views.shortenUrlPartial
+      routef "/url/%s" (fun slug -> GET >=> visitShortenedUrl slug)
 
       route "/shorten"
       >=> POST
       >=> bindForm<CreateShortenedUrlCommand> None shortenUrl
-
-      routef "/visit/%s" (fun slug -> GET >=> visitShortenedUrl slug)
 
       setStatusCode 404 >=> text "Not found!"
     ]
