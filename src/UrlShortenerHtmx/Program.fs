@@ -85,6 +85,7 @@ module Views =
       p [] [
         label [ _for "url" ] [ str "Original URL" ]
         input [
+          _id "url"
           _readonly
           _value shortenedUrl.Url
         ]
@@ -92,6 +93,7 @@ module Views =
       p [] [
         label [ _for "short-url" ] [ str "Shortened URL" ]
         input [
+          _id "short-url"
           _readonly
           _value (createUrlFromSlug shortenedUrl.Slug)
         ]

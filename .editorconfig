@@ -1,0 +1,8 @@
+root = true
+
+[*]
+indent_size = 2
+
+[*.{fs,fsx}]
+fsharp_array_or_list_multiline_formatter = number_of_items
+fsharp_multiline_bracket_style = stroustrup
