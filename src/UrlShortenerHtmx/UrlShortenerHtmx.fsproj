@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net7.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Migrations/*" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="dbup-sqlite" Version="5.0.37" />
+    <PackageReference Include="Donald" Version="10.0.1" />
+    <PackageReference Include="Giraffe" Version="6.2.0" />
+    <PackageReference Include="Giraffe.Htmx" Version="1.9.6" />
+    <PackageReference Include="Giraffe.ViewEngine" Version="1.4.0" />
+    <PackageReference Include="Giraffe.ViewEngine.Htmx" Version="1.9.6" />
+    <PackageReference Include="System.Data.Sqlite" Version="1.0.118" />
+  </ItemGroup>
+
+</Project>
